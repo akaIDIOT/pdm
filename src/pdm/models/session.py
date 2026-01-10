@@ -92,7 +92,7 @@ class ThreadedSyncSqliteStorage(hishel.SyncSqliteStorage):
             full_path = self.database_path.resolve()
             conn = sqlite3.connect(str(full_path), check_same_thread=False)
             with closing(conn.cursor()) as cursor:
-                cursor.execute("PRAGMA foreign_keys=ON")
+                cursor.execute("PRAGMA journal_mode=WAL")
             self.connection = conn
         if not self._initialized:
             self._initialize_database()
