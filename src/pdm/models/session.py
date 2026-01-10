@@ -61,8 +61,6 @@ def _get_transport(
 class ThreadedSyncSqliteStorage(hishel.SyncSqliteStorage):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         self._local_conns: dict[int, sqlite3.Connection] = {}
-        self._lock = threading.Lock()
-        self._initialized = False
         super().__init__(*args, **kwargs)
 
     @property
@@ -80,7 +78,7 @@ class ThreadedSyncSqliteStorage(hishel.SyncSqliteStorage):
                 _, conn = self._local_conns.popitem()
                 conn.close()
 
-    def _ensure_connection(self) -> sqlite3.Connection:
+    def _ensure_connection_unlocked(self) -> sqlite3.Connection:
         """
         Ensure connection is established and database is initialized.
 
@@ -88,21 +86,18 @@ class ThreadedSyncSqliteStorage(hishel.SyncSqliteStorage):
         so we have to open-code the entire implementation here.
         """
 
-        # we take a lock _despite_ using TLS to protect against concurrent close(), otherwise we have a TOCTOU
-        # this is kinda ugly and defeats the purpose of using TLS, but eh
-        with self._lock:
-            if self.connection is None:
-                # Create cache directory and resolve full path on first connection
-                self.database_path.parent.mkdir(parents=True, exist_ok=True)
-                full_path = self.database_path.resolve()
-                conn = sqlite3.connect(str(full_path), check_same_thread=False)
-                with closing(conn.cursor()) as cursor:
-                    cursor.execute("PRAGMA foreign_keys=ON")
-                self.connection = conn
-            if not self._initialized:
-                self._initialize_database()
-                self._initialized = True
-            return self.connection
+        if self.connection is None:
+            # Create cache directory and resolve full path on first connection
+            self.database_path.parent.mkdir(parents=True, exist_ok=True)
+            full_path = self.database_path.resolve()
+            conn = sqlite3.connect(str(full_path), check_same_thread=False)
+            with closing(conn.cursor()) as cursor:
+                cursor.execute("PRAGMA foreign_keys=ON")
+            self.connection = conn
+        if not self._initialized:
+            self._initialize_database()
+            self._initialized = True
+        return self.connection
 
 
 class PDMPyPIClient(PyPIClient):
